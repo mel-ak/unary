@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"io/ioutil"
 	"log"
 	"math/rand"
 	"net"
+	"os"
 
 	pb "github.com/mel-ak/unary/usermgmt"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/encoding/protojson"
 )
 
 const (
@@ -16,12 +19,10 @@ const (
 
 func NewUserManagementServer() *UserManagementServer {
 	return &UserManagementServer{
-		user_list: &pb.UserList{},
 	}
 }
 type UserManagementServer struct {
 	pb.UnimplementedUserManagementServer
-	user_list *pb.UserList
 }
 
 func (server *UserManagementServer) Run() error {
@@ -39,14 +40,57 @@ func (server *UserManagementServer) Run() error {
 
 func (s *UserManagementServer) CreateNewUser(ctx context.Context, in *pb.NewUser) (*pb.User, error) {
 	log.Println("Recieved ", in.GetName())
+	var users_list *pb.UserList =&pb.UserList{}
 	var user_id int32 = int32(rand.Intn(1000))
 	created_user := &pb.User{Name: in.GetName(), Age: in.GetAge(), Id: user_id}
-	s.user_list.Users = append(s.user_list.Users, created_user)
+	
+	readBytes, err:= ioutil.ReadFile("users.json")
+	if err != nil {
+		if os.IsNotExist(err){
+			log.Println("File Not found: ", err.Error())
+			log.Println("Creating New File")
+			users_list.Users= append(users_list.Users, created_user)
+			jsonBytes, err := protojson.Marshal(users_list)
+			if err!= nil {
+                log.Println("Error marshaling json", err)
+            }
+			if err := ioutil.WriteFile("users.json", jsonBytes, 0664); err != nil {
+				log.Println("Error writing to file", err)
+			}
+
+			return created_user,nil
+		}
+		log.Println("Error reading from file", err)
+    }
+
+    if err := protojson.Unmarshal(readBytes, users_list); err != nil {
+		log.Println("Error unmarshalling json", err)
+	}
+
+	users_list.Users= append(users_list.Users, created_user)
+	jsonBytes, err := protojson.Marshal(users_list)
+	if err!= nil {
+        log.Println("Error marshaling json", err)
+    }
+	if err := ioutil.WriteFile("users.json", jsonBytes, 0664); err!= nil {
+        log.Println("Error writing to file", err)
+    }
 	return created_user,nil
 }
 
 func (s *UserManagementServer) GetUsers(ctx context.Context, in *pb.GetUsersParams) (*pb.UserList, error) {
-	return s.user_list,nil
+	jsonBytes, err := ioutil.ReadFile("users.json")
+	if err!= nil {
+		log.Println("Error reading from file", err)
+        return nil, err
+	}
+
+	var users_list *pb.UserList = &pb.UserList{}
+	if err := protojson.Unmarshal(jsonBytes, users_list); err!= nil {
+        log.Println("Error unmarshalling json", err)
+        return nil, err
+    }
+	return users_list,nil
 }
 
 func main() {
